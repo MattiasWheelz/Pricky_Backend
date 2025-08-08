@@ -12,6 +12,7 @@ import os
 from dotenv import load_dotenv
 from send_email import send_email
 
+app = FastAPI()
 
 # === ENV + DB SETUP ===
 load_dotenv()
@@ -42,7 +43,6 @@ class Message(Base):
     session = relationship("Session", back_populates="messages")
 
 # === APP SETUP ===
-app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,7 +1,15 @@
-node_modules
+# Python / envs
+venv/
 .env
-venv
 __pycache__/
+
+# Node stuff, in case any accidentally present
+node_modules/
 
 package-lock.json
 package.json
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
