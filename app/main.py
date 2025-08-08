@@ -39,10 +39,11 @@ ssl_context = ssl.create_default_context()
 # === DATABASE ENGINE & SESSION ===
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
-    echo=False,
+    echo=True,  # <-- turn on for debugging
     future=True,
     connect_args={"ssl": ssl_context},
 )
+
 
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
