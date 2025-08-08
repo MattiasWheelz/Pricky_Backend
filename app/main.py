@@ -56,8 +56,10 @@ class Message(Base):
     session = relationship("Session", back_populates="messages")
 
 # === LOAD CONTEXT FILE ===
-varun_file_path = BASE_DIR / "varun_data.txt"
-if not varun_file_path.exists():
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+varun_file_path = os.path.join(BASE_DIR, "varun_data.txt")
+
+if not os.path.exists(varun_file_path):
     raise RuntimeError(f"❌ 'varun_data.txt' not found at {varun_file_path}")
 with open(varun_file_path, "r", encoding="utf-8") as f:
     varun_context = f.read()
