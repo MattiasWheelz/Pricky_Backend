@@ -33,6 +33,8 @@ else:
 
 # === SSL CONTEXT SETUP ===
 ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False  # disable hostname check
+ssl_context.verify_mode = ssl.CERT_NONE  # disable cert verification
 # If your DB requires no hostname verification, uncomment below (not recommended):
 # ssl_context.check_hostname = False
 
