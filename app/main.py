@@ -52,7 +52,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://varun-ai-portfolio.vercel.app/"],
+    allow_origins=[
+    "https://varun-ai-portfolio.vercel.app",
+    "http://localhost:5173",  # Vite default dev port
+    "http://localhost:3000",  # React default dev port (if any)
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
