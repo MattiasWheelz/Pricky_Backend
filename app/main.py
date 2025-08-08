@@ -1,4 +1,5 @@
 import os
+import ssl  # <<<<< added ssl import
 from uuid import uuid4
 from datetime import datetime
 from pathlib import Path
@@ -24,8 +25,18 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET", "supersecret")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not found in environment!")
 
+# === SSL CONTEXT SETUP FOR asyncpg (NO sslmode in URL!) ===
+ssl_context = ssl.create_default_context()
+# If needed to bypass hostname verification (not recommended), uncomment:
+# ssl_context.check_hostname = False
+
 # === DB SETUP ===
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    future=True,
+    connect_args={"ssl": ssl_context}  # pass ssl context correctly
+)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
@@ -34,7 +45,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
