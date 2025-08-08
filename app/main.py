@@ -18,6 +18,8 @@ from app.services.send_email import send_email
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "supersecret")
 
@@ -25,7 +27,10 @@ if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not found in environment!")
 
 # === DB SETUP ===
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+engine = create_async_engine(
+    DATABASE_URL,
+    connect_args={"ssl": ssl_context}
+)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
