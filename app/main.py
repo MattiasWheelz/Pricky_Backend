@@ -1,8 +1,7 @@
 import os
-import ssl  # <<<<< added ssl import
+import ssl
 from uuid import uuid4
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,8 +15,7 @@ from app.services.llm_client import query_together
 from app.services.send_email import send_email
 
 # === LOAD ENV ===
-BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv()  # assumes .env in root or current dir
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "supersecret")
@@ -25,18 +23,27 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET", "supersecret")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not found in environment!")
 
-# === SSL CONTEXT SETUP FOR asyncpg (NO sslmode in URL!) ===
+# === Prepare DB URL with asyncpg driver for SQLAlchemy engine ===
+# IMPORTANT: The DATABASE_URL from env SHOULD NOT have '+asyncpg',
+# so we add it here for the async engine only.
+if DATABASE_URL.startswith("postgresql://"):
+    ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+else:
+    ASYNC_DATABASE_URL = DATABASE_URL  # fallback, but usually should start with postgresql://
+
+# === SSL CONTEXT SETUP ===
 ssl_context = ssl.create_default_context()
-# If needed to bypass hostname verification (not recommended), uncomment:
+# If your DB requires no hostname verification, uncomment below (not recommended):
 # ssl_context.check_hostname = False
 
-# === DB SETUP ===
+# === DATABASE ENGINE & SESSION ===
 engine = create_async_engine(
-    DATABASE_URL,
+    ASYNC_DATABASE_URL,
     echo=False,
     future=True,
-    connect_args={"ssl": ssl_context}  # pass ssl context correctly
+    connect_args={"ssl": ssl_context},
 )
+
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
@@ -155,7 +162,7 @@ async def admin_history(auth: AdminAuth, db: AsyncSession = Depends(get_db)):
 async def send_feedback(data: dict = Body(...)):
     subject = "New Contact Form Submission" if data.get("type") == "contact" else "New Issue Report"
     body = "\n".join(f"{key.capitalize()}: {val}" for key, val in data.items())
-    
+
     if not send_email(subject, body):
         raise HTTPException(status_code=500, detail="Failed to send email")
 
