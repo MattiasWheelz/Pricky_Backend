@@ -1,21 +1,23 @@
 import os
 import httpx
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Load env vars
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
-
 if not TOGETHER_API_KEY:
     raise RuntimeError("❌ TOGETHER_API_KEY not found in environment!")
 
 API_URL = "https://api.together.xyz/v1/chat/completions"
+MODEL_NAME = "meta-llama/Llama-3-8b-chat-hf"
+
 HEADERS = {
     "Authorization": f"Bearer {TOGETHER_API_KEY}",
     "Content-Type": "application/json"
 }
-
-MODEL_NAME = "meta-llama/Llama-3-8b-chat-hf"
 
 async def query_together(prompt: str) -> str:
     payload = {
@@ -33,8 +35,8 @@ async def query_together(prompt: str) -> str:
         try:
             response = await client.post(API_URL, headers=HEADERS, json=payload)
             response.raise_for_status()
-            result = response.json()
-            return result["choices"][0]["message"]["content"].strip()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
         except Exception as e:
             print("❌ Together API Error:", e)
             return "⚠️ Failed to contact LLM."

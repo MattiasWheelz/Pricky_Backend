@@ -1,62 +1,66 @@
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from llm_client import query_together
+import os
 from uuid import uuid4
 from datetime import datetime
-from fastapi import Body
-import os
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Depends, Body
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, select
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from dotenv import load_dotenv
-from send_email import send_email
 
-app = FastAPI()
+from app.services.llm_client import query_together
+from app.services.send_email import send_email
 
-# === ENV + DB SETUP ===
-load_dotenv()
+# === LOAD ENV ===
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "supersecret")
 
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL not found in environment!")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+# === DB SETUP ===
+engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
+
+# === FASTAPI APP ===
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # === MODELS ===
 class Session(Base):
     __tablename__ = "sessions"
     id = Column(String, primary_key=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    messages = relationship("Message", back_populates="session")
+    messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
 
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String, ForeignKey("sessions.id"))
-    sender = Column(String)  # 'user' or 'bot'
+    sender = Column(String)
     content = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
     session = relationship("Session", back_populates="messages")
 
-# === APP SETUP ===
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Load context about Varun
-try:
-    with open("varun_data.txt", "r", encoding="utf-8") as f:
-        varun_context = f.read()
-except FileNotFoundError:
-    raise RuntimeError("❌ 'varun_data.txt' not found in backend folder.")
+# === LOAD CONTEXT FILE ===
+varun_file_path = BASE_DIR / "varun_data.txt"
+if not varun_file_path.exists():
+    raise RuntimeError(f"❌ 'varun_data.txt' not found at {varun_file_path}")
+with open(varun_file_path, "r", encoding="utf-8") as f:
+    varun_context = f.read()
 
 # === SCHEMAS ===
 class ChatMessage(BaseModel):
@@ -66,7 +70,7 @@ class ChatMessage(BaseModel):
 class AdminAuth(BaseModel):
     secret: str
 
-# === UTILS ===
+# === DB DEPENDENCY ===
 async def get_db():
     async with SessionLocal() as session:
         yield session
@@ -75,12 +79,9 @@ async def get_db():
 @app.post("/chat")
 async def chat(msg: ChatMessage, db: AsyncSession = Depends(get_db)):
     question = msg.message.strip()
-    word_count = len(question.split())
-
     if not question:
         raise HTTPException(status_code=400, detail="❌ Please ask a valid question.")
-
-    if word_count > 60:
+    if len(question.split()) > 60:
         raise HTTPException(status_code=400, detail="❌ Please keep your question within 60 words.")
 
     session_id = msg.session_id or str(uuid4())
@@ -101,7 +102,6 @@ Here is all the information you know:
 Answer this question in a friendly, natural tone:
 \"{question}\"
 """
-
     try:
         result = await query_together(prompt)
     except Exception as e:
@@ -114,10 +114,7 @@ Answer this question in a friendly, natural tone:
     ])
     await db.commit()
 
-    return {
-        "response": "🤖 " + result,
-        "session_id": session_id
-    }
+    return {"response": f"🤖 {result}", "session_id": session_id}
 
 @app.post("/admin/history")
 async def admin_history(auth: AdminAuth, db: AsyncSession = Depends(get_db)):
@@ -127,36 +124,31 @@ async def admin_history(auth: AdminAuth, db: AsyncSession = Depends(get_db)):
     sessions = await db.execute(select(Session).order_by(Session.created_at.desc()))
     session_objs = sessions.scalars().all()
 
-    full_data = []
-    for session in session_objs:
-        session_data = {
-            "session_id": session.id,
-            "created_at": session.created_at.isoformat(),
-            "messages": [
-                {
-                    "from": msg.sender,
-                    "text": msg.content,
-                    "timestamp": msg.timestamp.isoformat(),
-                }
-                for msg in session.messages
-            ],
-        }
-        full_data.append(session_data)
-
-    return {"sessions": full_data}
+    return {
+        "sessions": [
+            {
+                "session_id": s.id,
+                "created_at": s.created_at.isoformat(),
+                "messages": [
+                    {"from": m.sender, "text": m.content, "timestamp": m.timestamp.isoformat()}
+                    for m in s.messages
+                ]
+            }
+            for s in session_objs
+        ]
+    }
 
 @app.post("/send-feedback")
 async def send_feedback(data: dict = Body(...)):
     subject = "New Contact Form Submission" if data.get("type") == "contact" else "New Issue Report"
-    lines = [f"{key.capitalize()}: {val}" for key, val in data.items()]
-    body = "\n".join(lines)
+    body = "\n".join(f"{key.capitalize()}: {val}" for key, val in data.items())
     
-    success = send_email(subject, body)
-    if not success:
+    if not send_email(subject, body):
         raise HTTPException(status_code=500, detail="Failed to send email")
 
     return {"message": "Email sent successfully"}
 
+# === STARTUP EVENT ===
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
